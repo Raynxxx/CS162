@@ -4,8 +4,6 @@
 #include <unistd.h>
 #include <ctype.h>
 
-#define MAX_BUF_SIZE 512
-
 typedef unsigned long long wc_count_t;
 
 static wc_count_t   tot_line_cnt, tot_word_cnt, tot_char_cnt;

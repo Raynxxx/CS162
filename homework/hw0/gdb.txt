@@ -1,0 +1,7 @@
+argv = (char **) 0x7fffffffe518
+argv[0] = 0x7fffffffe78e "/home/vagrant/cs162/homework/hw0/wc"
+main = {int (int, char **)} 0x40078d <main>
+info stack = the top of the process stack.
+info frame = current frame info.
+info registers = current registers info
+
