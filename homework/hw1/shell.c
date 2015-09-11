@@ -142,7 +142,18 @@ int shell(int argc, char *argv[]) {
       cmd_table[fundex].fun(&tokens[1]);
     } else {
       /* REPLACE this to run commands as programs. */
-      fprintf(stdout, "This shell doesn't know how to run programs.\n");
+      pid_t pid = fork();
+      if (pid == 0) {
+        if (execv(tokens[0], tokens) < 0) {
+          fprintf(stderr, "%s : Command not found\n", tokens[0]);
+          exit(0);
+        }
+      } else {
+        int child_status;
+        if (waitpid(pid, &child_status, 0) < 0) {
+          fprintf(stderr, "waitpid error\n");
+        }
+      }
     }
 
     if (shell_is_interactive)
