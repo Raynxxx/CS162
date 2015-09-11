@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -9,6 +10,8 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <paths.h>
+#include <dirent.h>
 
 #include "io.h"
 #include "parse.h"
@@ -31,6 +34,8 @@ int cmd_quit(tok_t arg[]);
 int cmd_help(tok_t arg[]);
 int cmd_pwd(tok_t arg[]);
 int cmd_cd(tok_t arg[]);
+char* find_file_from_path(char* filename);
+void exec_process(tok_t arg[]);
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(tok_t args[]);
@@ -90,6 +95,44 @@ int cmd_cd(tok_t arg[]) {
   return 0;
 }
 
+/**
+ * Find execuatable file from PATH.
+ */
+char* find_file_from_path(char* filename) {
+  char* path = getenv("PATH");
+  char* ret = (char*) malloc(PATH_MAX + MAXLINE + 2);
+  tok_t* path_tokens;
+  struct dirent* ent;
+  if (path != NULL) {
+    path_tokens = get_toks(path);
+    for (int i = 1; i < MAXTOKS && path_tokens[i]; ++i) {
+      DIR* dir;
+      if ((dir = opendir(path_tokens[i])) == NULL) continue;
+      while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, filename) == 0) {
+          strncpy(ret, path_tokens[i], PATH_MAX);
+          strncat(ret, "/", 1);
+          strncat(ret, filename, MAXLINE);
+          return ret;
+        }
+      }
+      closedir(dir);
+    }
+  }
+  return NULL;
+}
+
+/**
+ * Exec process
+ */
+void exec_process(tok_t arg[]) {
+  char* eval = find_file_from_path(arg[0]);
+  if (eval != NULL) {
+    arg[0] = eval;
+  }
+}
+
+
 
 /**
  * Looks up the built-in command, if it exists.
@@ -144,6 +187,7 @@ int shell(int argc, char *argv[]) {
       /* REPLACE this to run commands as programs. */
       pid_t pid = fork();
       if (pid == 0) {
+        exec_process(tokens);
         if (execv(tokens[0], tokens) < 0) {
           fprintf(stderr, "%s : Command not found\n", tokens[0]);
           exit(0);

@@ -33,5 +33,6 @@ typedef char *tok_t;
 
 tok_t *get_toks(char *line);
 void free_toks(tok_t *toks);
+void fprint_tok(FILE *ofile, tok_t *t);
 
 #endif
