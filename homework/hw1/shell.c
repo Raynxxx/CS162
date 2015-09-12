@@ -35,6 +35,8 @@ int cmd_quit(tok_t arg[]);
 int cmd_help(tok_t arg[]);
 int cmd_pwd(tok_t arg[]);
 int cmd_cd(tok_t arg[]);
+int cmd_wait(tok_t arg[]);
+
 char* get_current_time();
 char* find_file_from_path(char* filename, tok_t path_tokens[]);
 int io_redirect(tok_t arg[]);
@@ -55,7 +57,8 @@ fun_desc_t cmd_table[] = {
   {cmd_help, "?", "show this help menu"},
   {cmd_quit, "quit", "quit the command shell"},
   {cmd_pwd, "pwd", "show the current working directory"},
-  {cmd_cd, "cd", "changes the current working directory to a specified directory"}
+  {cmd_cd, "cd", "changes the current working directory"},
+  {cmd_wait, "wait", "wait until all background jobs have terminated"}
 };
 
 /**
@@ -99,6 +102,25 @@ int cmd_cd(tok_t arg[]) {
   return 0;
 }
 
+/**
+ * Waits until all background jobs have terminated
+ */
+int cmd_wait(tok_t arg[]) {
+  int status;
+  pid_t pid;
+  while ((pid = waitpid(-1, &status, 0)) > 0) {
+    if (WIFEXITED(status)) {
+      printf("child [%d] has terminted with exit status = %d\n", pid, WEXITSTATUS(status));
+    } else {
+      printf("child [%d] terminated with error\n", pid);
+    }
+  }
+  if (errno != ECHILD) {
+    fprintf(stderr, "waitpid error\n");
+  }
+  return 0;
+}
+
 
 /**
  * Get current time
@@ -129,14 +151,12 @@ char* find_file_from_path(char* filename, tok_t path_tokens[]) {
         strncpy(ret, path_tokens[i], PATH_MAX);
         strncat(ret, "/", 1);
         strncat(ret, filename, MAXLINE);
-
         return ret;
       }
     }
     closedir(dir);
   }
   free(ret);
-  ret = NULL;
   return NULL;
 }
 
@@ -192,7 +212,6 @@ int io_redirect(tok_t arg[]) {
 void path_resolve(tok_t arg[], tok_t path_tokens[]) {
   char* eval = find_file_from_path(arg[0], path_tokens);
   if (eval != NULL) {
-    free(arg[0]);
     arg[0] = eval;
   }
 }
@@ -259,6 +278,7 @@ int shell(int argc, char *argv[]) {
   tok_t *tokens;
   tok_t *path_tokens;
   int fundex = -1;
+  int tokens_length = 0;
   char* path = (char*) malloc(PATH_MAX + 1);
 
   /* copy a new path var to use */
@@ -275,6 +295,12 @@ int shell(int argc, char *argv[]) {
 
   while ((input_bytes = freadln(stdin))) {
     tokens = get_toks(input_bytes);
+    tokens_length = toks_length(tokens);
+    int bg = 0;
+    if (strcmp(tokens[tokens_length - 1], "&") == 0) {
+      bg = 1;
+      tokens[tokens_length - 1] = NULL;
+    }
     fundex = lookup(tokens[0]);
     if (fundex >= 0) {
       cmd_table[fundex].fun(&tokens[1]);
@@ -287,14 +313,19 @@ int shell(int argc, char *argv[]) {
         }
         path_resolve(tokens, path_tokens);
         undo_signal();
+
         if (execv(tokens[0], tokens) < 0) {
           fprintf(stderr, "%s : Command not found\n", tokens[0]);
           exit(0);
         }
       } else {
-        int child_status;
-        if (waitpid(pid, &child_status, 0) < 0) {
-          fprintf(stderr, "waitpid error\n");
+        if (!bg) {
+          int child_status;
+          if (waitpid(pid, &child_status, 0) < 0) {
+              fprintf(stderr, "waitpid error\n");
+          }
+        } else {
+          printf("[%d] : %s\n", pid, input_bytes);
         }
       }
     }

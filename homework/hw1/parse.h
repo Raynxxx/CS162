@@ -35,5 +35,6 @@ tok_t *get_toks(char *line);
 void free_toks(tok_t *toks);
 void fprint_tok(FILE *ofile, tok_t *t);
 int is_direct_tok(tok_t *t, char *R);
+int toks_length(tok_t *t);
 
 #endif

@@ -62,3 +62,14 @@ int is_direct_tok(tok_t *t, char *R) {
   }
   return 0;
 }
+
+/**
+ * Return this token array's length
+ */
+int toks_length(tok_t *t) {
+  int length = 0;
+  while(length < MAXTOKS && t[length]) {
+    length++;
+  }
+  return length;
+}
