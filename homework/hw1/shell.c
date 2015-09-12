@@ -39,6 +39,7 @@ char* get_current_time();
 char* find_file_from_path(char* filename, tok_t path_tokens[]);
 int io_redirect(tok_t arg[]);
 void path_resolve(tok_t arg[], tok_t path_tokens[]);
+void undo_signal();
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(tok_t args[]);
@@ -128,11 +129,14 @@ char* find_file_from_path(char* filename, tok_t path_tokens[]) {
         strncpy(ret, path_tokens[i], PATH_MAX);
         strncat(ret, "/", 1);
         strncat(ret, filename, MAXLINE);
+
         return ret;
       }
     }
     closedir(dir);
   }
+  free(ret);
+  ret = NULL;
   return NULL;
 }
 
@@ -188,11 +192,21 @@ int io_redirect(tok_t arg[]) {
 void path_resolve(tok_t arg[], tok_t path_tokens[]) {
   char* eval = find_file_from_path(arg[0], path_tokens);
   if (eval != NULL) {
+    free(arg[0]);
     arg[0] = eval;
   }
 }
 
-
+/**
+ * undo the default singal action for child job
+ */
+void undo_signal() { 
+  signal(SIGINT, SIG_DFL);
+  signal(SIGQUIT, SIG_DFL);
+  signal(SIGTSTP, SIG_DFL);
+  signal(SIGTTIN, SIG_DFL);
+  signal(SIGTTOU, SIG_DFL);
+}
 
 /**
  * Looks up the built-in command, if it exists.
@@ -217,8 +231,22 @@ void init_shell() {
     while(tcgetpgrp(shell_terminal) != (shell_pgid = getpgrp()))
       kill(-shell_pgid, SIGTTIN);
 
+    /* Ignore interactive and job-control signals */
+    signal(SIGINT, SIG_IGN);
+    signal(SIGQUIT, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
+    signal(SIGTTIN, SIG_IGN);
+    signal(SIGTTOU, SIG_IGN);
+    //signal(SIGCHLD, SIG_IGN);
+
     /* Saves the shell's process id */
     shell_pgid = getpid();
+
+    /* Put shell in its own process group */
+    if (setpgid(shell_pgid, shell_pgid) < 0) {
+      fprintf(stderr, "Couldn’t put the shell in its own process group");
+      exit(1);
+    }
 
     /* Take control of the terminal */
     tcsetpgrp(shell_terminal, shell_pgid);
@@ -258,6 +286,7 @@ int shell(int argc, char *argv[]) {
           exit(0);
         }
         path_resolve(tokens, path_tokens);
+        undo_signal();
         if (execv(tokens[0], tokens) < 0) {
           fprintf(stderr, "%s : Command not found\n", tokens[0]);
           exit(0);
@@ -270,9 +299,10 @@ int shell(int argc, char *argv[]) {
       }
     }
 
-    if (shell_is_interactive)
+    if (shell_is_interactive) {
       /* Please only print shell prompts when standard input is not a tty */
       fprintf(stdout, "\033[;34mrayn\33[0m [\033[;32m%s\33[0m] \033[;31m%s\33[0m > ", get_current_time(), getcwd(NULL, 0));
+    }
   }
 
   return 0;
