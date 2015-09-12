@@ -83,9 +83,11 @@ int cmd_quit(tok_t arg[]) {
  * Prints the current working directory
  */
 int cmd_pwd(tok_t arg[]) {
-  char* cwd = getcwd(NULL, 0);
+  char* cwd = (char*) malloc(PATH_MAX + 1);
+  getcwd(cwd, PATH_MAX);
   if (cwd != NULL) {
     printf("%s\n", cwd);
+    free(cwd);
     return 0;
   }
   return 1;
@@ -181,6 +183,7 @@ int io_redirect(tok_t arg[]) {
     }
     dup2(fd, STDIN_FILENO);
     for (i = in_redir; i < MAXTOKS - 2 && arg[i + 2]; ++i) {
+      free(arg[i]);
       arg[i] = arg[i + 2];
     }
     arg[i] = NULL;
@@ -199,6 +202,7 @@ int io_redirect(tok_t arg[]) {
     }
     dup2(fd, STDOUT_FILENO);
     for (i = out_redir; i < MAXTOKS - 2 && arg[i + 2]; ++i) {
+      free(arg[i]);
       arg[i] = arg[i + 2];
     }
     arg[i] = NULL;
@@ -280,6 +284,7 @@ int shell(int argc, char *argv[]) {
   int fundex = -1;
   int tokens_length = 0;
   char* path = (char*) malloc(PATH_MAX + 1);
+  char* cwd_buf = (char*) malloc(PATH_MAX + 1);
 
   /* copy a new path var to use */
   strncpy(path, getenv("PATH"), PATH_MAX);
@@ -289,8 +294,9 @@ int shell(int argc, char *argv[]) {
   init_shell();
 
   if (shell_is_interactive) {
+    getcwd(cwd_buf, PATH_MAX);
     /* Please only print shell prompts when standard input is not a tty */
-    fprintf(stdout, "\033[;34mrayn\33[0m [\033[;32m%s\33[0m] \033[;31m%s\33[0m > ", get_current_time(), getcwd(NULL, 0));
+    fprintf(stdout, "\033[;34mrayn\33[0m [\033[;32m%s\33[0m] \033[;31m%s\33[0m > ", get_current_time(), cwd_buf);
   }
 
   while ((input_bytes = freadln(stdin))) {
@@ -299,6 +305,7 @@ int shell(int argc, char *argv[]) {
     int bg = 0;
     if (strcmp(tokens[tokens_length - 1], "&") == 0) {
       bg = 1;
+      free(tokens[tokens_length - 1]);
       tokens[tokens_length - 1] = NULL;
     }
     fundex = lookup(tokens[0]);
@@ -329,12 +336,17 @@ int shell(int argc, char *argv[]) {
         }
       }
     }
+    free_toks(tokens);
+    free(input_bytes);
 
     if (shell_is_interactive) {
+      getcwd(cwd_buf, PATH_MAX);
       /* Please only print shell prompts when standard input is not a tty */
-      fprintf(stdout, "\033[;34mrayn\33[0m [\033[;32m%s\33[0m] \033[;31m%s\33[0m > ", get_current_time(), getcwd(NULL, 0));
+      fprintf(stdout, "\033[;34mrayn\33[0m [\033[;32m%s\33[0m] \033[;31m%s\33[0m > ", get_current_time(), cwd_buf);
     }
   }
-
+  free(path);
+  free_toks(path_tokens);
+  free(cwd_buf);
   return 0;
 }
