@@ -36,9 +36,20 @@ void send_request_data(int client_fd, int req_fd) {
   char* buffer = (char*) malloc(MAX_BUFF + 1);
   int nread;
   while ((nread = read(req_fd, buffer, MAX_BUFF)) > 0) {
-      http_send_string(client_fd, buffer);
+      http_send_data(client_fd, buffer, nread);
   }
+  free(buffer);
 }
+
+int has_index(const char* path) {
+    int fd;
+    char* filename = (char*) malloc(MAX_PATH + 1);
+    strcpy(filename, path);
+    strcat(filename, "index.html");
+    fd = open(filename, O_RDONLY);
+    return fd;
+}
+
 
 /*
  * Reads an HTTP request from stream (fd), and writes an HTTP response
@@ -68,26 +79,56 @@ void handle_files_request(int fd) {
       // test the request is a regular file or not
       if (S_ISREG(file_stat.st_mode) != 0) {
         if ((req_fd = open(req_file_path, O_RDONLY)) != -1) {
+          char file_size[64];
+          sprintf(file_size, "%lu", file_stat.st_size);
           http_start_response(fd, 200);
           http_send_header(fd, "Content-type", http_get_mime_type(req_file_path));
           http_send_header(fd, "Server", "httpserver/1.0");
+          http_send_header(fd, "Content-Length", file_size);
           http_end_headers(fd);
           send_request_data(fd, req_fd);
         }
       } else if (S_ISDIR(file_stat.st_mode) != 0) {
+        http_start_response(fd, 200);
+        http_send_header(fd, "Content-type", "text/html");
+        http_send_header(fd, "Server", "httpserver/1.0");
+        http_end_headers(fd);
 
+        if ((req_fd = has_index(req_file_path)) != -1) {
+          send_request_data(fd, req_fd);
+        } else {
+          char *buffer = (char*) malloc(MAX_BUFF + 1);
+          char *whole_path = (char*) malloc(MAX_PATH + 1);
+          DIR *dir = opendir(req_file_path);
+          struct dirent *dir_entry;
+
+          http_send_string(fd, "<h2><a href='../'>Parent directory</a></h2><br>\n");
+          if (dir != NULL) {
+            while ((dir_entry = readdir(dir)) != NULL) {
+              strcpy(whole_path, request->path);
+              strcat(whole_path, "/");
+              strcat(whole_path, dir_entry->d_name);
+              sprintf(buffer, "<a href='%s'>%s</a><br>\n", whole_path, dir_entry->d_name);
+              http_send_string(fd, buffer);
+            }
+            closedir(dir);
+          }
+          free(buffer);
+          free(whole_path);
+        }
       }
+      return;
     }
-  } else {
-      http_start_response(fd, 404);
-      http_send_header(fd, "Content-type", "text/html");
-      http_send_header(fd, "Server", "httpserver/1.0");
-      http_end_headers(fd);
-      http_send_string(fd,
-          "<center>"
-          "<h1>404 Not Found</h1>"
-          "</center>");
+    free(req_file_path);
   }
+  http_start_response(fd, 404);
+  http_send_header(fd, "Content-type", "text/html");
+  http_send_header(fd, "Server", "httpserver/1.0");
+  http_end_headers(fd);
+  http_send_string(fd,
+      "<center>"
+      "<h1>404 Not Found</h1>"
+      "</center>");
 }
 
 /*
