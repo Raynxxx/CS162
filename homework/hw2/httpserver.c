@@ -34,20 +34,88 @@ int server_proxy_port;
 
 void send_request_data(int client_fd, int req_fd) {  
   char* buffer = (char*) malloc(MAX_BUFF + 1);
-  int nread;
+  ssize_t nread;
   while ((nread = read(req_fd, buffer, MAX_BUFF)) > 0) {
       http_send_data(client_fd, buffer, nread);
   }
   free(buffer);
 }
 
-int has_index(const char* path) {
+int has_index(const char* path, struct stat *file_stat, char *file_path) {
     int fd;
     char* filename = (char*) malloc(MAX_PATH + 1);
     strcpy(filename, path);
     strcat(filename, "index.html");
     fd = open(filename, O_RDONLY);
+    stat(filename, file_stat);
+    if (fd != -1) {
+      strcpy(file_path, filename);
+    }
+    free(filename);
     return fd;
+}
+
+void http_not_found(int fd) {
+  http_start_response(fd, 404);
+  http_send_header(fd, "Content-type", "text/html");
+  http_send_header(fd, "Server", "httpserver/1.0");
+  http_end_headers(fd);
+  http_send_string(fd,
+      "<center>"
+      "<h1>404 Not Found</h1>"
+      "</center>");
+  return;
+}
+
+void http_send_file(int fd, int req_fd, struct stat *file_stat, char *file_path) {
+  char file_size[64];
+  sprintf(file_size, "%lu", file_stat->st_size);
+  if (req_fd != -1) {
+    http_start_response(fd, 200);
+    http_send_header(fd, "Content-type", http_get_mime_type(file_path));
+    http_send_header(fd, "Server", "httpserver/1.0");
+    http_send_header(fd, "Content-Length", file_size);
+    http_end_headers(fd);
+    send_request_data(fd, req_fd);
+  } else {
+    http_not_found(fd);
+  }
+}
+
+void http_send_directory(int fd, char *req_dir) {
+  DIR *dir = opendir(req_dir);
+  struct dirent *dir_entry;
+  struct stat file_stat;
+  char *full_path = (char*) malloc(MAX_PATH + 1);
+  char *entry_link = (char*) malloc(MAX_PATH + 1);
+
+  http_start_response(fd, 200);
+  http_send_header(fd, "Content-type", "text/html");
+  http_send_header(fd, "Server", "httpserver/1.0");
+  http_end_headers(fd);
+  http_send_string(fd, "<h2>Index of ");
+  http_send_string(fd, req_dir);
+  http_send_string(fd, " </h2><br>\n");
+
+  if (dir != NULL) {
+    while ((dir_entry = readdir(dir)) != NULL) {
+      strcpy(full_path, req_dir);
+      if (full_path[strlen(full_path) - 1] != '/') {
+        strcat(full_path, "/");
+      }
+      strcat(full_path, dir_entry->d_name);
+      stat(full_path, &file_stat);
+      if (S_ISDIR(file_stat.st_mode)) {
+        snprintf(entry_link, MAX_PATH, "<a href='%s/'>%s/</a><br>\n", dir_entry->d_name, dir_entry->d_name);
+      } else {
+        snprintf(entry_link, MAX_PATH, "<a href='./%s'>%s/</a><br>\n", dir_entry->d_name, dir_entry->d_name);
+      }
+      http_send_string(fd, entry_link);
+    }
+    closedir(dir);
+  }
+  free(entry_link);
+  free(full_path);
 }
 
 
@@ -67,68 +135,35 @@ void handle_files_request(int fd) {
   /* YOUR CODE HERE (Feel free to delete/modify the existing code below) */
 
   struct http_request *request = http_request_parse(fd);
-  if (request != NULL) {
-    int req_fd;
-    struct stat file_stat;
-    char* req_file_path = (char*) malloc(MAX_PATH + 1);
-
-    strcpy(req_file_path, server_files_directory);
-    strcat(req_file_path, request->path);
-    
-    if (stat(req_file_path, &file_stat) == 0) {
-      // test the request is a regular file or not
-      if (S_ISREG(file_stat.st_mode) != 0) {
-        if ((req_fd = open(req_file_path, O_RDONLY)) != -1) {
-          char file_size[64];
-          sprintf(file_size, "%lu", file_stat.st_size);
-          http_start_response(fd, 200);
-          http_send_header(fd, "Content-type", http_get_mime_type(req_file_path));
-          http_send_header(fd, "Server", "httpserver/1.0");
-          http_send_header(fd, "Content-Length", file_size);
-          http_end_headers(fd);
-          send_request_data(fd, req_fd);
-        }
-      } else if (S_ISDIR(file_stat.st_mode) != 0) {
-        http_start_response(fd, 200);
-        http_send_header(fd, "Content-type", "text/html");
-        http_send_header(fd, "Server", "httpserver/1.0");
-        http_end_headers(fd);
-
-        if ((req_fd = has_index(req_file_path)) != -1) {
-          send_request_data(fd, req_fd);
-        } else {
-          char *buffer = (char*) malloc(MAX_BUFF + 1);
-          char *whole_path = (char*) malloc(MAX_PATH + 1);
-          DIR *dir = opendir(req_file_path);
-          struct dirent *dir_entry;
-
-          http_send_string(fd, "<h2><a href='../'>Parent directory</a></h2><br>\n");
-          if (dir != NULL) {
-            while ((dir_entry = readdir(dir)) != NULL) {
-              strcpy(whole_path, request->path);
-              strcat(whole_path, "/");
-              strcat(whole_path, dir_entry->d_name);
-              sprintf(buffer, "<a href='%s'>%s</a><br>\n", whole_path, dir_entry->d_name);
-              http_send_string(fd, buffer);
-            }
-            closedir(dir);
-          }
-          free(buffer);
-          free(whole_path);
-        }
-      }
-      return;
-    }
-    free(req_file_path);
+  if (request == NULL) { 
+    http_not_found(fd);
   }
-  http_start_response(fd, 404);
-  http_send_header(fd, "Content-type", "text/html");
-  http_send_header(fd, "Server", "httpserver/1.0");
-  http_end_headers(fd);
-  http_send_string(fd,
-      "<center>"
-      "<h1>404 Not Found</h1>"
-      "</center>");
+
+  int req_fd;
+  struct stat file_stat;
+  char *req_file_path = (char*) malloc(MAX_PATH + 1);
+
+  strcpy(req_file_path, server_files_directory);
+  strcat(req_file_path, request->path);
+  
+  if (stat(req_file_path, &file_stat) == 0) {
+    if (S_ISREG(file_stat.st_mode)) {
+      req_fd = open(req_file_path, O_RDONLY);
+      http_send_file(fd, req_fd, &file_stat, req_file_path);
+    } else if (S_ISDIR(file_stat.st_mode)) {
+      req_fd = has_index(req_file_path, &file_stat, req_file_path);
+      if (req_fd != -1) {
+        http_send_file(fd, req_fd, &file_stat, req_file_path);
+      } else {
+        http_send_directory(fd, req_file_path);
+      }
+    } else {
+      http_not_found(fd);
+    }
+  } else {
+    http_not_found(fd);
+  }
+  free(req_file_path);
 }
 
 /*
