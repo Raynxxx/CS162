@@ -13,12 +13,15 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <unistd.h>
+#include <sys/select.h>
 
 #include "libhttp.h"
 
 #define MAX_PATH 4096
 #define MAX_BUFF 8192
+
+#define min(a, b)   ((a) < (b) ? (a) : (b))
+#define max(a, b)   ((a) > (b) ? (a) : (b))
 
 /*
  * Global configuration variables.
@@ -166,6 +169,48 @@ void handle_files_request(int fd) {
   free(req_file_path);
 }
 
+int tcp_connect(const char *hostname, const int serv_port) {
+  int sock_fd, error_n;
+  char serv[32];
+  struct addrinfo hints, *res, *res_save;
+
+  bzero(&hints, sizeof(struct addrinfo));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+
+  sprintf(serv, "%d", serv_port);
+  printf("connect %s %s\n", hostname, serv);
+
+  if ((error_n = getaddrinfo(hostname, serv, &hints, &res)) != 0) {
+    fprintf(stderr, "tcp connect error for %s %s: %s\n", 
+                hostname, serv, gai_strerror(error_n));
+    exit(1);
+  }
+  res_save = res;
+
+  do {
+    sock_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sock_fd < 0) {
+      continue;
+    }
+    if (connect(sock_fd, res->ai_addr, res->ai_addrlen) == 0) {
+      break;
+    }
+
+    if (close(sock_fd) != 0) {
+      fprintf(stderr, "socket close error for %s %s\n", hostname, serv);
+      exit(1);
+    }
+  } while((res = res->ai_next) != NULL);
+
+  if (res == NULL) {
+    fprintf(stderr, "tcp connect error for %s %s\n", hostname, serv);
+    exit(1);
+  }
+  freeaddrinfo(res_save);
+  return sock_fd;
+}
+
 /*
  * Opens a connection to the proxy target (hostname=server_proxy_hostname and
  * port=server_proxy_port) and relays traffic to/from the stream fd and the
@@ -177,10 +222,68 @@ void handle_files_request(int fd) {
  *   | client | <-> | httpserver | <-> | proxy target |
  *   +--------+     +------------+     +--------------+
  */
-void handle_proxy_request(int fd) {
+void handle_proxy_request(int client_fd) {
 
   /* YOUR CODE HERE */
+  int proxy_fd = tcp_connect(server_proxy_hostname, server_proxy_port);
+  int maxfdp1, client_eof;
+  fd_set rset;
+  char *req_buffer = (char*) malloc(MAX_BUFF + 1);
+  char *proxy_buffer = (char*) malloc(MAX_BUFF + 1);
 
+  client_eof = 0;
+  FD_ZERO(&rset);
+  while (1) {
+    if (client_eof == 0) {
+      FD_SET(client_fd, &rset);
+    }
+    FD_SET(proxy_fd, &rset);
+    maxfdp1 = max(client_fd, proxy_fd) + 1;
+    if (select(maxfdp1, &rset, NULL, NULL, NULL) < 0) {
+      perror("select error");
+      exit(1);
+    }
+
+    int nread;
+    if (FD_ISSET(client_fd, &rset)) {
+      if ((nread = read(client_fd, req_buffer, MAX_BUFF)) == 0) {
+        client_eof = 1;
+        if (shutdown(client_fd, SHUT_WR) < 0) {
+          perror("shutdown client error");
+          exit(1);
+        }
+        FD_CLR(client_fd, &rset);
+        continue;
+      } else if (nread < 0) {
+        perror("read from client error");
+        exit(1);
+      }
+      printf("\n%s\n", req_buffer);
+      http_send_data(proxy_fd, req_buffer, nread);
+    }
+
+    if (FD_ISSET(proxy_fd, &rset)) {
+      if ((nread = read(proxy_fd, proxy_buffer, MAX_BUFF)) == 0) {
+        if (client_eof == 1) {
+          return;
+        } else {
+          perror("proxy server has closed");
+          exit(1);
+        }
+      } else if (nread < 0) {
+        perror("read from proxy error");
+        exit(1);
+      } 
+      printf("\n%s\n", proxy_buffer);
+      http_send_data(client_fd, proxy_buffer, nread);
+    }
+  }
+  free(req_buffer);
+  free(proxy_buffer);
+  if (close(proxy_fd) < 0) {
+    perror("proxy connect close error");
+    exit(1);
+  }
 }
 
 /*
