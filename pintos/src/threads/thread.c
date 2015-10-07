@@ -198,6 +198,7 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  t->ticks_blocked = 0;
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -240,6 +241,20 @@ thread_unblock (struct thread *t)
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
+}
+
+/**
+ * check block thread if should be unblock 
+ * rayn @@ 2015-10-07
+ */
+void
+thread_block_check(struct thread *t, void *aux UNUSED) {
+  if (t->status == THREAD_BLOCKED && t->ticks_blocked > 0) {
+    t->ticks_blocked--;
+    if (t->ticks_blocked == 0) {
+      thread_unblock(t);
+    }
+  }
 }
 
 /* Returns the name of the running thread. */
