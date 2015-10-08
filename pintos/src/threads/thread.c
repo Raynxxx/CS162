@@ -202,6 +202,11 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  /* Rayn @@ 2015-10-08 */
+  if (thread_current ()->priority < t->priority) {
+    thread_yield();
+  }
+
   return tid;
 }
 
@@ -238,7 +243,9 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  // list_push_back (&ready_list, &t->elem);
+  // Rayn @@ 2015-10-07
+  list_insert_ordered (&ready_list, &t->elem, thread_cmp_less_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -255,6 +262,19 @@ thread_block_check(struct thread *t, void *aux UNUSED) {
       thread_unblock(t);
     }
   }
+}
+
+/**
+ * thread priority compare function
+ * rayn @@ 2015-10-07
+ */
+bool
+thread_cmp_less_priority (const struct list_elem *a,
+                          const struct list_elem *b,
+                          void *aux UNUSED)
+{
+  return list_entry(a, struct thread, elem)->priority >
+      list_entry(b, struct thread, elem)->priority;
 }
 
 /* Returns the name of the running thread. */
@@ -322,8 +342,11 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+  if (cur != idle_thread) {
+    // list_push_back (&ready_list, &cur->elem);
+    // Rayn @@ 2015-10-08
+    list_insert_ordered (&ready_list, &cur->elem, thread_cmp_less_priority, NULL);
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -351,6 +374,8 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  /* Rayn @@ 2015-10-08 */
+  thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -390,7 +415,7 @@ thread_get_recent_cpu (void)
   /* Not yet implemented. */
   return 0;
 }
-
+
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -439,7 +464,7 @@ kernel_thread (thread_func *function, void *aux)
   function (aux);       /* Execute the thread function. */
   thread_exit ();       /* If function() returns, kill the thread. */
 }
-
+
 /* Returns the running thread. */
 struct thread *
 running_thread (void) 
@@ -480,7 +505,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
-  list_push_back (&all_list, &t->allelem);
+  // list_push_back (&all_list, &t->allelem);
+  // Rayn @@ 2015-10-08
+  list_insert_ordered (&all_list, &t->allelem, thread_cmp_less_priority, NULL); 
   intr_set_level (old_level);
 }
 

@@ -102,6 +102,8 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
+    /* Rayn */
     int64_t ticks_blocked;
   };
 
@@ -144,5 +146,8 @@ int thread_get_load_avg (void);
 
 /* rayn */
 void thread_block_check(struct thread *t, void *aux UNUSED);
+bool thread_cmp_less_priority (const struct list_elem *a,
+                               const struct list_elem *b,
+                               void *aux UNUSED);
 
 #endif /* threads/thread.h */
