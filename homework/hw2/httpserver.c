@@ -169,6 +169,9 @@ void handle_files_request(int fd) {
   free(req_file_path);
 }
 
+/*
+ * get a tcp socket connect
+ */
 int tcp_connect(const char *hostname, const int serv_port) {
   int sock_fd, error_n;
   char serv[32];
@@ -265,7 +268,7 @@ void handle_proxy_request(int client_fd) {
     if (FD_ISSET(proxy_fd, &rset)) {
       if ((nread = read(proxy_fd, proxy_buffer, MAX_BUFF)) == 0) {
         if (client_eof == 1) {
-          return;
+          break;
         } else {
           perror("proxy server has closed");
           exit(1);
