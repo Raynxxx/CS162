@@ -105,6 +105,11 @@ struct thread
 
     /* Rayn */
     int64_t ticks_blocked;
+
+    /* Rayn @@ 2015-10-22 */
+    int base_priority;
+    struct list locks;
+    struct lock *lock_waiting;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -144,10 +149,15 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 
-/* rayn */
+/* Rayn */
 void thread_block_check(struct thread *t, void *aux UNUSED);
 bool thread_cmp_less_priority (const struct list_elem *a,
                                const struct list_elem *b,
                                void *aux UNUSED);
+/* Rayn @@ 2015-10-22 */
+void thread_hold_lock(struct lock *lock);
+void thread_remove_lock (struct lock *lock);
+void thread_donate_priority(struct thread *t);
+void thread_update_priority(struct thread *t);
 
 #endif /* threads/thread.h */
